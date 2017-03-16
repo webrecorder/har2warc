@@ -4,11 +4,16 @@ import base64
 
 from warcio.warcwriter import BufferWARCWriter, WARCWriter
 from warcio.statusandheaders import StatusAndHeaders
+from warcio.timeutils import iso_date_to_timestamp
 
 from six.moves.urllib.parse import urlsplit, urlencode
 from io import BytesIO
 
+from collections import OrderedDict
+
 from argparse import ArgumentParser, RawTextHelpFormatter
+
+from har2warc import __version__
 
 
 # ============================================================================
@@ -26,9 +31,11 @@ class HarParser(object):
 
         self.writer = writer
 
-    def parse(self):
-        for entry in self.har['log']['entries']:
+    def parse(self, out_filename='har.warc.gz', rec_title='HAR Recording'):
+        metadata = self.create_wr_metadata(self.har['log'], rec_title)
+        self.write_warc_info(self.har['log'], out_filename, metadata)
 
+        for entry in self.har['log']['entries']:
             url = entry['request']['url']
 
             response = self.handle_response(url, entry['response'])
@@ -43,6 +50,42 @@ class HarParser(object):
             request = self.handle_request(entry['request'])
 
             self.writer.write_request_response_pair(request, response)
+
+    def create_wr_metadata(self, log, rec_title):
+        pagelist = []
+
+        for page in log['pages']:
+            if not page['title'].startswith(('http:', 'https:')):
+                continue
+
+            pagelist.append(dict(title=page['title'],
+                                 url=page['title'],
+                                 timestamp=iso_date_to_timestamp(page['startedDateTime'])))
+
+        metadata = {"title": rec_title,
+                    #"created_at": timestamp_now(),
+                    "type": "recording",
+                    "pages": pagelist,
+                   }
+
+        return metadata
+
+    def write_warc_info(self, log, filename, metadata):
+        creator = '{0} {1}'.format(log['creator']['name'],
+                                   log['creator']['version'])
+
+        source = 'HAR Format {0}'.format(log['version'])
+
+        software = 'har2warc ' + str(__version__)
+
+        params = OrderedDict([('software', software),
+                              ('creator', creator),
+                              ('source', source),
+                              ('format', 'WARC File Format 1.0'),
+                              ('json-metadata', json.dumps(metadata))])
+
+        record = self.writer.create_warcinfo_record(filename, params)
+        self.writer.write_record(record)
 
     def _get_http_version(self, entry, default='HTTP/1.0'):
         http_version = entry.get('httpVersion', default)
@@ -126,17 +169,22 @@ class HarParser(object):
 
 
 def main(args=None):
-    parser = ArgumentParser(description='warcio utils',
+    parser = ArgumentParser(description='HAR to WARC Converter',
                             formatter_class=RawTextHelpFormatter)
 
     parser.add_argument('input')
     parser.add_argument('output')
 
-    cmd = parser.parse_args(args=args)
+    parser.add_argument('--title')
+    parser.add_argument('--no-z', action='store_true')
 
-    with open(cmd.output, 'wb') as fh:
-        writer = WARCWriter(fh)
-        HarParser(cmd.input, writer).parse()
+    r = parser.parse_args(args=args)
+
+    rec_title = r.title or r.input.rsplit('/', 1)[-1]
+
+    with open(r.output, 'wb') as fh:
+        writer = WARCWriter(fh, gzip=not r.no_z)
+        HarParser(r.input, writer).parse(r.output, rec_title)
 
 
 main()
