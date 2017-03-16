@@ -1,6 +1,7 @@
 import json
 import sys
 import base64
+import logging
 
 from warcio.warcwriter import BufferWARCWriter, WARCWriter
 from warcio.statusandheaders import StatusAndHeaders
@@ -18,6 +19,8 @@ from har2warc import __version__
 
 # ============================================================================
 class HarParser(object):
+    logger = logging.getLogger(__name__)
+
     def __init__(self, obj, writer):
         if isinstance(obj, str):
             with open(obj, 'rt') as fh:
@@ -95,12 +98,8 @@ class HarParser(object):
         return http_version
 
     def handle_response(self, url, response):
-        #print(response['headers'])
-
         payload = BytesIO()
-        content = response['content'].get('text')
-        if not content:
-            return
+        content = response['content'].get('text', '')
 
         if response['content'].get('encoding') == 'base64':
             payload.write(base64.b64decode(content))
@@ -112,25 +111,29 @@ class HarParser(object):
         length = payload.tell()
         payload.seek(0)
 
-        def skip(name):
-            if name == 'transfer-encoding':
-                return True
-
-            if not is_bin and name == 'content-encoding':
-                return True
-
-            return False
+        SKIP_HEADERS = ('content-encoding', 'transfer-encoding')
 
         headers = [(header['name'], header['value'])
                    for header in response['headers']
-                    if not skip(header['name'])]
+                   if header['name'].lower() not in SKIP_HEADERS]
 
-        status_line = str(response.get('status', '404'))
-        status_line += ' ' + response.get('statusText', 'unknown')
+        status = response.get('status') or 204
+
+        reason = response.get('statusText') or 'No Content'
+
+        status_line = str(status) + ' ' + reason
 
         proto = self._get_http_version(response)
 
         http_headers = StatusAndHeaders(status_line, headers, protocol=proto)
+
+        if not content:
+            content_length = http_headers.get_header('Content-Length', '0')
+            if content_length != '0':
+                self.logger.debug('No Content for length {0} {1}'.format(content_length, url))
+                http_headers.replace_header('Content-Length', '0')
+        else:
+            http_headers.replace_header('Content-Length', str(length))
 
         record = self.writer.create_warc_record(url, 'response',
                                                 http_headers=http_headers,
@@ -158,10 +161,19 @@ class HarParser(object):
         status_line = request['method'] + ' ' + path + ' ' + http_version
         http_headers = StatusAndHeaders(status_line, headers)
 
+        payload = None
+        length = 0
+
+        if request['bodySize'] > 0:
+            payload = BytesIO()
+            payload.write(request['postData']['text'].encode('utf-8'))
+            length = payload.tell()
+            payload.seek(0)
+
         record = self.writer.create_warc_record(request['url'], 'request',
                                                 http_headers=http_headers,
-                                                payload=None,
-                                                length=0)
+                                                payload=payload,
+                                                length=length)
 
         return record
 
@@ -177,10 +189,14 @@ def main(args=None):
 
     parser.add_argument('--title')
     parser.add_argument('--no-z', action='store_true')
+    parser.add_argument('-v', '--verbose', action='store_true')
 
     r = parser.parse_args(args=args)
 
     rec_title = r.title or r.input.rsplit('/', 1)[-1]
+
+    logging.basicConfig(format='[%(levelname)s]: %(message)s')
+    HarParser.logger.setLevel(logging.INFO if not r.verbose else logging.DEBUG)
 
     with open(r.output, 'wb') as fh:
         writer = WARCWriter(fh, gzip=not r.no_z)
