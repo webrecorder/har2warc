@@ -7,6 +7,18 @@ import glob
 
 from har2warc import __version__
 
+class PyTest(TestCommand):
+    def finalize_options(self):
+        TestCommand.finalize_options(self)
+
+    def run_tests(self):
+        import pytest
+        import sys
+        import os
+        errcode = pytest.main(['--doctest-module', './har2warc', '--cov', 'har2warc', '-v', 'test/'])
+        sys.exit(errcode)
+
+
 setup(
     name='har2warc',
     version=__version__,
@@ -25,11 +37,14 @@ setup(
         'six',
         ],
     zip_safe=True,
+    data_files=[
+        ('test/data', glob.glob('test/data/*')),
+    ],
     entry_points="""
         [console_scripts]
         har2warc = har2warc.har2warc:main
     """,
-    cmdclass={},
+    cmdclass={'test': PyTest},
     test_suite='',
     tests_require=[
         'pytest',
