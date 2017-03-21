@@ -119,7 +119,7 @@ class HarParser(object):
 
         status = response.get('status') or 204
 
-        reason = response.get('statusText') or 'No Content'
+        reason = response.get('statusText') or 'No Reason'
 
         status_line = str(status) + ' ' + reason
 
