@@ -41,9 +41,8 @@ class HarParser(object):
         for entry in self.har['log']['entries']:
             url = entry['request']['url']
 
-            response = self.handle_response(url, entry['response'])
-            if not response:
-                continue
+            response = self.handle_response(url, entry['response'],
+                                            entry.get('serverIPAddress'))
 
             #TODO: support WARC/1.1 arbitrary precision dates!
             warc_date = entry['startedDateTime'][:19] + 'Z'
@@ -97,7 +96,7 @@ class HarParser(object):
 
         return http_version
 
-    def handle_response(self, url, response):
+    def handle_response(self, url, response, ip=None):
         payload = BytesIO()
         content = response['content'].get('text', '')
 
@@ -135,10 +134,15 @@ class HarParser(object):
         else:
             http_headers.replace_header('Content-Length', str(length))
 
+        warc_headers_dict = {}
+        if ip:
+            warc_headers_dict['WARC-IP-Address'] = ip
+
         record = self.writer.create_warc_record(url, 'response',
                                                 http_headers=http_headers,
                                                 payload=payload,
-                                                length=length)
+                                                length=length,
+                                                warc_headers_dict=warc_headers_dict)
 
         return record
 
@@ -203,4 +207,5 @@ def main(args=None):
         HarParser(r.input, writer).parse(r.output, rec_title)
 
 
-main()
+if __name__ == "__main__":  #pragma: no cover
+    main()
