@@ -14,7 +14,9 @@ from collections import OrderedDict
 
 from argparse import ArgumentParser, RawTextHelpFormatter
 
-from har2warc import __version__
+from http_status import name as http_status_names
+
+from . import __version__
 
 
 # ============================================================================
@@ -41,7 +43,8 @@ class HarParser(object):
         for entry in self.har['log']['entries']:
             url = entry['request']['url']
 
-            response = self.handle_response(url, entry['response'],
+            response = self.handle_response(url,
+                                            entry['response'],
                                             entry.get('serverIPAddress'))
 
             #TODO: support WARC/1.1 arbitrary precision dates!
@@ -65,7 +68,6 @@ class HarParser(object):
                                  timestamp=iso_date_to_timestamp(page['startedDateTime'])))
 
         metadata = {"title": rec_title,
-                    #"created_at": timestamp_now(),
                     "type": "recording",
                     "pages": pagelist,
                    }
@@ -89,10 +91,10 @@ class HarParser(object):
         record = self.writer.create_warcinfo_record(filename, params)
         self.writer.write_record(record)
 
-    def _get_http_version(self, entry, default='HTTP/1.0'):
-        http_version = entry.get('httpVersion', default)
-        if http_version == 'unknown':
-            http_version = default
+    def _get_http_version(self, entry, http2=False):
+        http_version = entry.get('httpVersion')
+        if not http_version or http_version == 'unknown':
+            http_version = 'HTTP/2.0' if http2 else 'HTTP/1.0'
 
         return http_version
 
@@ -112,17 +114,25 @@ class HarParser(object):
 
         SKIP_HEADERS = ('content-encoding', 'transfer-encoding')
 
-        headers = [(header['name'], header['value'])
-                   for header in response['headers']
-                   if header['name'].lower() not in SKIP_HEADERS]
+        headers = []
+        http2 = False
+
+        for header in response['headers']:
+            if header['name'].lower() not in SKIP_HEADERS:
+                headers.append((header['name'], header['value']))
+
+            if header['name'] in (':status', 'status'):
+                http2 = True
 
         status = response.get('status') or 204
 
-        reason = response.get('statusText') or 'No Reason'
+        reason = response.get('statusText')
+        if not reason:
+            reason = http_status_names.get(status, 'No Reason')
 
         status_line = str(status) + ' ' + reason
 
-        proto = self._get_http_version(response)
+        proto = self._get_http_version(response, http2)
 
         http_headers = StatusAndHeaders(status_line, headers, protocol=proto)
 
@@ -155,12 +165,19 @@ class HarParser(object):
             path += '?' + urlencode(dict((p['name'], p['value'])
                                     for p in query))
 
-        headers = [(header['name'], header['value'])
-                    for header in request['headers']]
+        headers = []
+        http2 = False
+
+        for header in request['headers']:
+            headers.append((header['name'], header['value']))
+
+            if (not http2 and
+                header['name'] in (':method', ':scheme', ':path')):
+                http2 = True
 
         headers.append(('Host', parts.netloc))
 
-        http_version = self._get_http_version(request)
+        http_version = self._get_http_version(request, http2)
 
         status_line = request['method'] + ' ' + path + ' ' + http_version
         http_headers = StatusAndHeaders(status_line, headers)

@@ -35,6 +35,7 @@ setup(
     install_requires=[
         'warcio',
         'six',
+        'http_status',
         ],
     zip_safe=True,
     data_files=[
