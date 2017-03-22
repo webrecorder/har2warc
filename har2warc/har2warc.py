@@ -23,7 +23,7 @@ from . import __version__
 class HarParser(object):
     logger = logging.getLogger(__name__)
 
-    def __init__(self, obj, writer):
+    def __init__(self, obj, writer, allow_http2=False):
         if isinstance(obj, str):
             with open(obj, 'rt') as fh:
                 self.har = json.loads(fh.read())
@@ -35,6 +35,7 @@ class HarParser(object):
             raise Exception('obj is an unknown format')
 
         self.writer = writer
+        self.allow_http2 = allow_http2
 
     def parse(self, out_filename='har.warc.gz', rec_title='HAR Recording'):
         metadata = self.create_wr_metadata(self.har['log'], rec_title)
@@ -94,7 +95,10 @@ class HarParser(object):
     def _get_http_version(self, entry, http2=False):
         http_version = entry.get('httpVersion')
         if not http_version or http_version == 'unknown':
-            http_version = 'HTTP/2.0' if http2 else 'HTTP/1.0'
+            if http2 and self.allow_http2:
+                http_version = 'HTTP/2.0'
+            else:
+                http_version = 'HTTP/1.0'
 
         return http_version
 
@@ -211,6 +215,7 @@ def main(args=None):
     parser.add_argument('--title')
     parser.add_argument('--no-z', action='store_true')
     parser.add_argument('-v', '--verbose', action='store_true')
+    parser.add_argument('--allow-http2', action='store_true')
 
     r = parser.parse_args(args=args)
 
@@ -221,7 +226,7 @@ def main(args=None):
 
     with open(r.output, 'wb') as fh:
         writer = WARCWriter(fh, gzip=not r.no_z)
-        HarParser(r.input, writer).parse(r.output, rec_title)
+        HarParser(r.input, writer, r.allow_http2).parse(r.output, rec_title)
 
 
 if __name__ == "__main__":  #pragma: no cover
