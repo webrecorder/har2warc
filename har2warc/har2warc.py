@@ -23,7 +23,7 @@ from . import __version__
 class HarParser(object):
     logger = logging.getLogger(__name__)
 
-    def __init__(self, obj, writer, allow_http2=False):
+    def __init__(self, obj, writer):
         if isinstance(obj, str):
             with open(obj, 'rt') as fh:
                 self.har = json.loads(fh.read())
@@ -35,7 +35,6 @@ class HarParser(object):
             raise Exception('obj is an unknown format')
 
         self.writer = writer
-        self.allow_http2 = allow_http2
 
     def parse(self, out_filename='har.warc.gz', rec_title='HAR Recording'):
         metadata = self.create_wr_metadata(self.har['log'], rec_title)
@@ -92,13 +91,10 @@ class HarParser(object):
         record = self.writer.create_warcinfo_record(filename, params)
         self.writer.write_record(record)
 
-    def _get_http_version(self, entry, http2=False):
+    def _get_http_version(self, entry):
         http_version = entry.get('httpVersion')
         if not http_version or http_version == 'unknown':
-            if http2 and self.allow_http2:
-                http_version = 'HTTP/2.0'
-            else:
-                http_version = 'HTTP/1.0'
+            http_version = 'HTTP/1.1'
 
         return http_version
 
@@ -125,7 +121,9 @@ class HarParser(object):
             if header['name'].lower() not in SKIP_HEADERS:
                 headers.append((header['name'], header['value']))
 
-            if header['name'] in (':status', 'status'):
+            #TODO: http2 detection -- write as same warc header?
+            if (not http2 and
+                header['name'] in (':method', ':scheme', ':path')):
                 http2 = True
 
         status = response.get('status') or 204
@@ -136,7 +134,7 @@ class HarParser(object):
 
         status_line = str(status) + ' ' + reason
 
-        proto = self._get_http_version(response, http2)
+        proto = self._get_http_version(response)
 
         http_headers = StatusAndHeaders(status_line, headers, protocol=proto)
 
@@ -175,13 +173,15 @@ class HarParser(object):
         for header in request['headers']:
             headers.append((header['name'], header['value']))
 
+            #TODO: http2 detection -- write as same warc header?
             if (not http2 and
                 header['name'] in (':method', ':scheme', ':path')):
                 http2 = True
 
-        headers.append(('Host', parts.netloc))
+        if http2:
+            headers.append(('Host', parts.netloc))
 
-        http_version = self._get_http_version(request, http2)
+        http_version = self._get_http_version(request)
 
         status_line = request['method'] + ' ' + path + ' ' + http_version
         http_headers = StatusAndHeaders(status_line, headers)
@@ -215,7 +215,6 @@ def main(args=None):
     parser.add_argument('--title')
     parser.add_argument('--no-z', action='store_true')
     parser.add_argument('-v', '--verbose', action='store_true')
-    parser.add_argument('--allow-http2', action='store_true')
 
     r = parser.parse_args(args=args)
 
@@ -226,7 +225,7 @@ def main(args=None):
 
     with open(r.output, 'wb') as fh:
         writer = WARCWriter(fh, gzip=not r.no_z)
-        HarParser(r.input, writer, r.allow_http2).parse(r.output, rec_title)
+        HarParser(r.input, writer).parse(r.output, rec_title)
 
 
 if __name__ == "__main__":  #pragma: no cover
