@@ -41,20 +41,24 @@ class HarParser(object):
         self.write_warc_info(self.har['log'], out_filename, metadata)
 
         for entry in self.har['log']['entries']:
-            url = entry['request']['url']
+            self.parse_entry(entry)
 
-            response = self.handle_response(url,
-                                            entry['response'],
-                                            entry.get('serverIPAddress'))
+    def parse_entry(self, entry):
+        url = entry['request']['url']
 
-            #TODO: support WARC/1.1 arbitrary precision dates!
-            warc_date = entry['startedDateTime'][:19] + 'Z'
+        response = self.parse_response(url,
+                                        entry['response'],
+                                        entry.get('serverIPAddress'))
 
-            response.rec_headers.replace_header('WARC-Date', warc_date)
+        #TODO: support WARC/1.1 arbitrary precision dates!
+        warc_date = entry['startedDateTime'][:19] + 'Z'
 
-            request = self.handle_request(entry['request'])
+        response.rec_headers.replace_header('WARC-Date', warc_date)
 
-            self.writer.write_request_response_pair(request, response)
+        request = self.parse_request(entry['request'])
+
+        self.writer.write_request_response_pair(request, response)
+
 
     def create_wr_metadata(self, log, rec_title):
         pagelist = []
@@ -98,7 +102,7 @@ class HarParser(object):
 
         return http_version
 
-    def handle_response(self, url, response, ip=None):
+    def parse_response(self, url, response, ip=None):
         payload = BytesIO()
         content = response['content'].get('text', '')
 
@@ -158,7 +162,7 @@ class HarParser(object):
 
         return record
 
-    def handle_request(self, request):
+    def parse_request(self, request):
         parts = urlsplit(request['url'])
 
         path = parts.path
@@ -203,8 +207,7 @@ class HarParser(object):
         return record
 
 
-
-
+# ============================================================================
 def main(args=None):
     parser = ArgumentParser(description='HAR to WARC Converter',
                             formatter_class=RawTextHelpFormatter)
