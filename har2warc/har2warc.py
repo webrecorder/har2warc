@@ -73,8 +73,10 @@ class HarParser(object):
 
         metadata = {"title": rec_title,
                     "type": "recording",
-                    "pages": pagelist,
                    }
+
+        if pagelist:
+            metadata["pages"] = pagelist
 
         return metadata
 
@@ -97,28 +99,29 @@ class HarParser(object):
 
     def _get_http_version(self, entry):
         http_version = entry.get('httpVersion')
-        if not http_version or http_version == 'unknown':
+        if not http_version or http_version in ('unknown', 'HTTP/2.0'):
             http_version = 'HTTP/1.1'
 
         return http_version
 
     def parse_response(self, url, response, ip=None):
+        headers = []
         payload = BytesIO()
         content = response['content'].get('text', '')
 
+        if not content and not response.get('headers'):
+            self.logger.info('No headers or payload for: {0}'.format(url))
+            headers.append(('Content-Length', '0'))
         if response['content'].get('encoding') == 'base64':
             payload.write(base64.b64decode(content))
-            is_bin = True
         else:
             payload.write(content.encode('utf-8'))
-            is_bin = False
 
         length = payload.tell()
         payload.seek(0)
 
         SKIP_HEADERS = ('content-encoding', 'transfer-encoding')
 
-        headers = []
         http2 = False
 
         for header in response['headers']:
@@ -145,7 +148,7 @@ class HarParser(object):
         if not content:
             content_length = http_headers.get_header('Content-Length', '0')
             if content_length != '0':
-                self.logger.debug('No Content for length {0} {1}'.format(content_length, url))
+                self.logger.info('No Content for length {0} {1}'.format(content_length, url))
                 http_headers.replace_header('Content-Length', '0')
         else:
             http_headers.replace_header('Content-Length', str(length))
@@ -224,7 +227,7 @@ def main(args=None):
     rec_title = r.title or r.input.rsplit('/', 1)[-1]
 
     logging.basicConfig(format='[%(levelname)s]: %(message)s')
-    HarParser.logger.setLevel(logging.INFO if not r.verbose else logging.DEBUG)
+    HarParser.logger.setLevel(logging.ERROR if not r.verbose else logging.INFO)
 
     with open(r.output, 'wb') as fh:
         writer = WARCWriter(fh, gzip=not r.no_z)
