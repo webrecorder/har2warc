@@ -1,5 +1,6 @@
 from har2warc.har2warc import main
 from warcio.cli import main as indexer
+from warcio import ArchiveIterator
 from tempfile import NamedTemporaryFile
 import os
 import sys
@@ -13,20 +14,46 @@ class TestHar2WARC(object):
     def get_test_file(cls, filename):
         return os.path.join(os.path.dirname(os.path.realpath(__file__)), 'data', filename)
 
-    def test_example_har(self):
-        filename = self.get_test_file('example.har')
+    def load_har(self, filename):
+        filename = self.get_test_file(filename)
 
         with NamedTemporaryFile('wb') as temp:
             main([filename, temp.name])
 
-
             with patch_stdout() as buff:
                 indexer(['index', temp.name, '-f', 'warc-target-uri'])
 
-                assert buff.getvalue().decode('utf-8') == EXPECTED
+                return buff.getvalue().decode('utf-8')
+
+    def test_example_har(self):
+        assert self.load_har('example.har') == EXAMPLE_INDEX
+
+    def test_http2_har(self):
+        assert self.load_har('http2.github.io.har').startswith(HTTP2_INDEX)
+
+    def test_load_http2_warc_convert_protocol(self):
+        filename = self.get_test_file('http2.github.io.har')
+
+        with NamedTemporaryFile('w+b') as temp:
+            main([filename, temp.name])
+
+            temp.seek(0)
+            ai = ArchiveIterator(temp, verify_http=True)
+
+            record = next(ai)
+            assert record.rec_type == 'warcinfo'
+
+            record = next(ai)
+            assert record.rec_type == 'response'
+
+            # ensure protocol vonerted to HTTP/1.1
+            assert record.http_headers.protocol == 'HTTP/1.1'
 
 
-EXPECTED = """\
+
+
+
+EXAMPLE_INDEX = """\
 {}
 {"warc-target-uri": "http://example.com/"}
 {"warc-target-uri": "http://example.com/"}
@@ -54,6 +81,16 @@ EXPECTED = """\
 {"warc-target-uri": "https://www.iana.org/_img/2015.1/fonts/SourceCodePro-Regular.woff"}
 {"warc-target-uri": "https://www.iana.org/_img/bookmark_icon.ico"}
 {"warc-target-uri": "https://www.iana.org/_img/bookmark_icon.ico"}
+"""
+
+HTTP2_INDEX = """\
+{}
+{"warc-target-uri": "https://http2.github.io/"}
+{"warc-target-uri": "https://http2.github.io/"}
+{"warc-target-uri": "https://http2.github.io/components/bootstrap/dist/css/bootstrap.min.css"}
+{"warc-target-uri": "https://http2.github.io/components/bootstrap/dist/css/bootstrap.min.css"}
+{"warc-target-uri": "https://http2.github.io/asset/site.css"}
+{"warc-target-uri": "https://http2.github.io/asset/site.css"}
 """
 
 

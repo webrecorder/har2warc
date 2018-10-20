@@ -99,7 +99,7 @@ class HarParser(object):
 
     def _get_http_version(self, entry):
         http_version = entry.get('httpVersion')
-        if not http_version or http_version in ('unknown', 'HTTP/2.0'):
+        if not http_version or http_version.upper() not in ('HTTP/1.1', 'HTTP/1.0'):
             http_version = 'HTTP/1.1'
 
         return http_version
