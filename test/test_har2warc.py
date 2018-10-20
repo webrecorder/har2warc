@@ -1,7 +1,7 @@
 from har2warc.har2warc import main
 from warcio.cli import main as indexer
 from warcio import ArchiveIterator
-from tempfile import NamedTemporaryFile
+import tempfile
 import os
 import sys
 
@@ -17,13 +17,17 @@ class TestHar2WARC(object):
     def load_har(self, filename):
         filename = self.get_test_file(filename)
 
-        with NamedTemporaryFile('wb') as temp:
-            main([filename, temp.name])
+        temp_filename = os.path.join(tempfile.gettempdir(), tempfile.gettempprefix() + '-' + os.path.basename(filename))
+
+        try:
+            main([filename, temp_filename])
 
             with patch_stdout() as buff:
-                indexer(['index', temp.name, '-f', 'warc-target-uri'])
+                indexer(['index', temp_filename, '-f', 'warc-target-uri'])
 
                 return buff.getvalue().decode('utf-8')
+        finally:
+            os.remove(temp_filename)
 
     def test_example_har(self):
         assert self.load_har('example.har') == EXAMPLE_INDEX
@@ -34,22 +38,25 @@ class TestHar2WARC(object):
     def test_load_http2_warc_convert_protocol(self):
         filename = self.get_test_file('http2.github.io.har')
 
-        with NamedTemporaryFile('w+b') as temp:
-            main([filename, temp.name])
+        temp_filename = os.path.join(tempfile.gettempdir(), tempfile.gettempprefix() + '-http2.warc')
 
-            temp.seek(0)
-            ai = ArchiveIterator(temp, verify_http=True)
+        try:
+            main([filename, temp_filename])
 
-            record = next(ai)
-            assert record.rec_type == 'warcinfo'
+            with open(temp_filename, 'rb') as fh:
+                ai = ArchiveIterator(fh, verify_http=True)
 
-            record = next(ai)
-            assert record.rec_type == 'response'
+                record = next(ai)
+                assert record.rec_type == 'warcinfo'
 
-            # ensure protocol vonerted to HTTP/1.1
-            assert record.http_headers.protocol == 'HTTP/1.1'
+                record = next(ai)
+                assert record.rec_type == 'response'
 
+                # ensure protocol vonerted to HTTP/1.1
+                assert record.http_headers.protocol == 'HTTP/1.1'
 
+        finally:
+            os.remove(temp_filename)
 
 
 
