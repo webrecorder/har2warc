@@ -2,6 +2,7 @@ import json
 import sys
 import base64
 import logging
+import codecs
 
 from warcio.warcwriter import BufferWARCWriter, WARCWriter
 from warcio.statusandheaders import StatusAndHeaders
@@ -25,7 +26,7 @@ class HarParser(object):
 
     def __init__(self, obj, writer):
         if isinstance(obj, str):
-            with open(obj, 'rt') as fh:
+            with codecs.open(obj, encoding='utf-8') as fh:
                 self.har = json.loads(fh.read())
         elif hasattr(obj, 'read'):
             self.har = json.loads(obj.read())
