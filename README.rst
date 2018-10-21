@@ -29,13 +29,10 @@ Using the parser directly:
 
 .. code:: python
 
-   har_filename = 'example.har'
-   warc_filename = 'example.warc'
+   from har2warc import har2warc
 
-   with open(warc_filename, 'wb') as fh:
-        warc_writer = WARCWriter(fh)  
-        parser = HarParser(har_filename, warc_writer)
-        parser.parse(warc_filename)
+   har2warc('input.har', 'output.warc.gz')
+
    
    
  

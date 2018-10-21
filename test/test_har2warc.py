@@ -1,4 +1,4 @@
-from har2warc.har2warc import main
+from har2warc.har2warc import har2warc, main
 from warcio.cli import main as indexer
 from warcio import ArchiveIterator
 import tempfile
@@ -41,9 +41,12 @@ class TestHar2WARC(object):
         temp_filename = os.path.join(tempfile.gettempdir(), tempfile.gettempprefix() + '-http2.warc')
 
         try:
-            main([filename, temp_filename])
+            # write then read same file
+            with open(temp_filename, 'w+b') as fh:
+                har2warc(filename, fh)
 
-            with open(temp_filename, 'rb') as fh:
+                fh.seek(0)
+
                 ai = ArchiveIterator(fh, verify_http=True)
 
                 record = next(ai)

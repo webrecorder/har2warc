@@ -4,7 +4,7 @@ import base64
 import logging
 import codecs
 
-from warcio.warcwriter import BufferWARCWriter, WARCWriter
+from warcio.warcwriter import BufferWARCWriter, WARCWriter, BaseWARCWriter
 from warcio.statusandheaders import StatusAndHeaders
 from warcio.timeutils import iso_date_to_timestamp
 
@@ -24,25 +24,39 @@ from . import __version__
 class HarParser(object):
     logger = logging.getLogger(__name__)
 
-    def __init__(self, obj, writer):
-        if isinstance(obj, str):
-            with codecs.open(obj, encoding='utf-8') as fh:
+    def __init__(self, reader, writer, gzip=True):
+        if isinstance(reader, str):
+            with codecs.open(reader, encoding='utf-8') as fh:
                 self.har = json.loads(fh.read())
-        elif hasattr(obj, 'read'):
-            self.har = json.loads(obj.read())
-        elif isinstance(obj, dict):
-            self.har = obj
+        elif hasattr(reader, 'read'):
+            self.har = json.loads(reader.read())
+        elif isinstance(reader, dict):
+            self.har = reader
         else:
-            raise Exception('obj is an unknown format')
+            raise Exception('reader is in an unknown format')
 
-        self.writer = writer
+        self.fh = None
+        if isinstance(writer, BaseWARCWriter):
+            self.writer = writer
+        elif isinstance(writer, str):
+            self.fh = open(writer, 'wb')
+            self.writer = WARCWriter(self.fh, gzip=gzip)
+        elif hasattr(writer, 'write'):
+            self.writer = WARCWriter(writer, gzip=gzip)
+        else:
+            raise Exception('writer is in an unknown format')
 
-    def parse(self, out_filename='har.warc.gz', rec_title='HAR Recording'):
+    def parse(self, out_filename=None, rec_title=None):
+        out_filename = out_filename or 'har.warc.gz'
+        rec_title = rec_title or 'HAR Recording'
         metadata = self.create_wr_metadata(self.har['log'], rec_title)
         self.write_warc_info(self.har['log'], out_filename, metadata)
 
         for entry in self.har['log']['entries']:
             self.parse_entry(entry)
+
+        if self.fh:
+            self.fh.close()
 
     def parse_entry(self, entry):
         url = entry['request']['url']
@@ -212,6 +226,11 @@ class HarParser(object):
 
 
 # ============================================================================
+def har2warc(har, writer, gzip=True, filename=None, rec_title=None):
+    HarParser(har, writer, gzip=gzip).parse(filename, rec_title)
+
+
+# ============================================================================
 def main(args=None):
     parser = ArgumentParser(description='HAR to WARC Converter',
                             formatter_class=RawTextHelpFormatter)
@@ -230,9 +249,9 @@ def main(args=None):
     logging.basicConfig(format='[%(levelname)s]: %(message)s')
     HarParser.logger.setLevel(logging.ERROR if not r.verbose else logging.INFO)
 
-    with open(r.output, 'wb') as fh:
-        writer = WARCWriter(fh, gzip=not r.no_z)
-        HarParser(r.input, writer).parse(r.output, rec_title)
+    har2warc(r.input, r.output, gzip=not r.no_z,
+             filename=r.output,
+             rec_title=rec_title)
 
 
 if __name__ == "__main__":  #pragma: no cover
