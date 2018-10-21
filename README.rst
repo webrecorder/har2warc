@@ -17,24 +17,28 @@ Libary Usage
 
 har2warc can be used as a python library.
 
-Use the CLI interface:
-
-.. code:: python
-   
-   from har2warc.har2warc import main
-   main(['input.har', 'output.warc.gz'])
-   
-
-Using the parser directly:
+Simple usage similar to CLI interface:
 
 .. code:: python
 
-   from har2warc import har2warc
+   from har2warc.har2warc import har2warc
 
    har2warc('input.har', 'output.warc.gz')
 
-   
-   
- 
+
+Also supports reading and writing from buffers:
+
+.. code:: python
+
+   from har2warc.har2warc import har2warc
+
+   har = json.loads(...)
+
+   with open('output.warc.gz', 'w+b') as warc:
+        har2warc(har, warc)
+
+        # READ WARC
+        warc.seek(0)
+        warc.read()
 
 
